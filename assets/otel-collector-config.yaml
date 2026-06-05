@@ -1,0 +1,40 @@
+# Production-ready OpenTelemetry Collector Config for AI Agents
+# Includes basic translation from standard OTel to OpenInference for compatibility
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+  # Example transformation to translate OTel GenAI to OpenInference 
+  transform/openinference:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          # Maps base GenAI systems to OpenInference Agent kinds
+          - set(attributes["openinference.span.kind"], "AGENT") where attributes["gen_ai.system"] != nil
+
+  # Tracks Cache hits for FinOps dashboards
+  transform/finops_cache:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["finops.cache.status"], "hit") where attributes["gen_ai.response.cached"] == true
+
+exporters:
+  otlp/observability_backend:
+    endpoint: https://ingest.your-apm-vendor.com:4317 # Replace with Langfuse, Phoenix, or Datadog endpoint
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [transform/finops_cache, transform/openinference, batch]
+      exporters: [otlp/observability_backend]
